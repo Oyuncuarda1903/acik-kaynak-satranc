@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Gelişmiş Satranç</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <style>
+        :root { 
+            --bg: #262421; 
+            --side: #2d2b28; 
+            --accent: #81b64c;
+            --white-sq: #eeeed2; 
+            --black-sq: #769656;
+        }
+        body { 
+            font-family: 'Segoe UI', sans-serif; 
+            background: var(--bg); 
+            color: white; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center;
+            margin: 0; 
+            padding: 20px; 
+            min-height: 100vh;
+        }
+        
+        .theme-selector, .time-selector { margin-bottom: 10px; display: flex; gap: 10px; align-items: center; }
+        .theme-btn, .time-btn { padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; color: white; font-weight: bold; }
+        .time-btn { background: #444; }
+        .time-btn:hover { background: #555; }
+        .time-btn.active { background: var(--accent); }
+
+        .game-layout { display: flex; gap: 15px; align-items: flex-start; }
+        
+        /* Analiz Çubuğu */
+        .eval-bar { 
+            width: 25px; 
+            height: 400px; 
+            background: #2b2b2b; 
+            border-radius: 4px; 
+            position: relative; 
+            overflow: hidden; 
+            border: 2px solid #333;
+        }
+        #eval-fill { 
+            width: 100%; 
+            height: 50%; 
+            background: #ffffff; 
+            transition: height 0.6s ease-in-out;
+            position: absolute;
+            bottom: 0;
+        }
+        #eval-text { 
+            position: absolute; 
+            width: 100%; 
+            text-align: center; 
+            top: 5px; 
+            font-size: 11px; 
+            color: #000; 
+            font-weight: bold; 
+            z-index: 2; 
+        }
+
+        /* Satranç Tahtası */
+        .board { 
+            display: grid; 
+            grid-template-columns: repeat(8, 50px); 
+            grid-template-rows: repeat(8, 50px); 
+            border: 5px solid #333;
+            border-radius: 4px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+        .square {
+            width: 50px; height: 50px; display: flex; align-items: center; justify-content: center;
+            cursor: pointer; user-select: none;
+        }
+        .white-sq { background: var(--white-sq); }
+        .black-sq { background: var(--black-sq); }
+        
+        .selected { background: #f5f682 !important; }
+        .last-move { background: rgba(245, 246, 130, 0.6) !important; }
+        
+        .square svg {
+            width: 42px;
+            height: 42px;
+            pointer-events: none;
+        }
+
+        /* Yan Panel */
+        .sidebar { width: 260px; background: var(--side); padding: 15px; border-radius: 8px; height: 400px; display: flex; flex-direction: column; justify-content: space-between; box-sizing: border-box; }
+        .timer { font-family: monospace; font-size: 1.4rem; background: #21201d; padding: 5px; text-align: center; border-radius: 4px; border-bottom: 3px solid transparent; }
+        .active-timer { border-bottom-color: var(--accent); }
+        
+        .history { flex-grow: 1; background: #1a1917; margin: 10px 0; padding: 10px; font-size: 0.85rem; overflow-y: auto; border-radius: 4px; max-height: 220px; }
+        .move-row { display: flex; justify-content: space-between; border-bottom: 1px solid #333; padding: 3px 0; }
+        
+        button.action-btn { padding: 10px; cursor: pointer; border: none; border-radius: 4px; background: #444; color: white; font-weight: bold; }
+        .reset-btn { background: var(--accent); }
+    </style>
+</head>
+<body>
+
+    <div class="theme-selector">
+        <span>Tema Seç: </span>
+        <button class="theme-btn" style="background: #769656;" onclick="changeTheme('#eeeed2', '#769656')">Yeşil Beyaz</button>
+        <button class="theme-btn" style="background: #8ca2ad;" onclick="changeTheme('#dee3e6', '#8ca2ad')">Siyah Beyaz</button>
+        <button class="theme-btn" style="background: #b58863;" onclick="changeTheme('#f0d9b5', '#b58863')">Ahşap</button>
+        <button class="theme-btn" style="background: #706677;" onclick="changeTheme('#e2e4f6', '#706677')">Mor</button>
+    </div>
+
+    <div class="time-selector">
+        <span>Süre Seç: </span>
+        <button id="time-5" class="time-btn" onclick="setTimeMode(5)">5+0</button>
+        <button id="time-10" class="time-btn active" onclick="setTimeMode(10)">10+0</button>
+        <button id="time-20" class="time-btn" onclick="setTimeMode(20)">20+0</button>
+    </div>
+
+    <div class="game-layout">
+        <div class="eval-bar">
+            <div id="eval-fill"></div>
+            <div id="eval-text">0.0</div>
+        </div>
+        
+        <div id="chess-board" class="board"></div>
+
+        <div class="sidebar">
+            <div>
+                <div class="timer active-timer" id="timer-display">10:00 | 10:00</div>
+                <div id="status" style="text-align:center; color: var(--accent); font-weight: bold; margin-top: 5px;">Beyazın Sırası</div>
+                
+                <div class="history" id="history">
+                    <div style="color:#666; text-align: center;">Hamleler bekleniyor...</div>
+                </div>
+            </div>
+            
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+                <button class="action-btn" onclick="undoMove()">← Geri</button>
+                <button class="action-btn reset-btn" onclick="location.reload()">Yeni Maç</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+    const game = new Chess();
+    const boardEl = document.getElementById('chess-board');
+    let selectedSquare = null;
+    let baseTime = 600; 
+    let timeLeft = { w: 600, b: 600 };
+    let timerInterval = null;
+    let gameStarted = false;
+    let lastMoveFrom = null;
+    let lastMoveTo = null;
+
+    const pieceSVGs = {
+        'pw': '<svg viewBox="0 0 45 45"><path d="M22.5 9c-2.21 0-4 1.79-4 4 0 .89.29 1.71.78 2.38C17.33 16.5 16 18.59 16 21c0 2.03.94 3.84 2.41 5.03-3 1.06-7.41 5.55-7.41 13.47h23c0-7.92-4.41-12.41-7.41-13.47 1.47-1.19 2.41-3 2.41-5.03 0-2.41-1.33-4.5-3.28-5.62.49-.67.78-1.49.78-2.38 0-2.21-1.79-4-4-4z" fill="#fff" stroke="#000" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        'pb': '<svg viewBox="0 0 45 45"><path d="M22.5 9c-2.21 0-4 1.79-4 4 0 .89.29 1.71.78 2.38C17.33 16.5 16 18.59 16 21c0 2.03.94 3.84 2.41 5.03-3 1.06-7.41 5.55-7.41 13.47h23c0-7.92-4.41-12.41-7.41-13.47 1.47-1.19 2.41-3 2.41-5.03 0-2.41-1.33-4.5-3.28-5.62.49-.67.78-1.49.78-2.38 0-2.21-1.79-4-4-4z" fill="#000" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        'nw': '<svg viewBox="0 0 45 45"><g fill="#fff" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M 22,10 C 32.5,11 38.5,18 38,39 L 15,39 C 15,30 25,32.5 23,18 C 24,20 18,24 16,26 C 14,28 13,31 11,31 C 10,30 12,28 11,28 C 10,28 11,29 10,30 C 9,30 6,31 6,26 C 6,24 12,14 12,14 C 12,14 13.89,12.1 14,10.5 C 13.27,9.5 13.5,8.5 13.5,7.5 C 14.5,6.5 16.5,10 16.5,10 L 18.5,10 C 18.5,10 19.28,8 21,7 C 22,7 22,10 22,10" /><path d="M 9.5 25.5 A 0.5 0.5 0 1 1 8.5,25.5 A 0.5 0.5 0 1 1 9.5 25.5 z" fill="#000"/><path d="M 15 15.5 A 0.5 1.5 0 1 1 14,15.5 A 0.5 1.5 0 1 1 15 15.5 z" fill="#000"/></g></svg>',
+        'nb': '<svg viewBox="0 0 45 45"><g fill="#000" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M 22,10 C 32.5,11 38.5,18 38,39 L 15,39 C 15,30 25,32.5 23,18 C 24,20 18,24 16,26 C 14,28 13,31 11,31 C 10,30 12,28 11,28 C 10,28 11,29 10,30 C 9,30 6,31 6,26 C 6,24 12,14 12,14 C 12,14 13.89,12.1 14,10.5 C 13.27,9.5 13.5,8.5 13.5,7.5 C 14.5,6.5 16.5,10 16.5,10 L 18.5,10 C 18.5,10 19.28,8 21,7 C 22,7 22,10 22,10" /><path d="M 9.5 25.5 A 0.5 0.5 0 1 1 8.5,25.5 A 0.5 0.5 0 1 1 9.5 25.5 z" fill="#fff"/><path d="M 15 15.5 A 0.5 1.5 0 1 1 14,15.5 A 0.5 1.5 0 1 1 15 15.5 z" fill="#fff"/></g></svg>',
+        'bw': '<svg viewBox="0 0 45 45"><g fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M 9,36 C 12.39,35.03 19.11,36.43 22.5,34 C 25.89,36.43 32.61,35.03 36,36 C 36,36 37.65,36.54 39,38 C 38.32,38.97 37.35,38.99 36,38.5 C 32.61,37.53 25.89,38.96 22.5,37.5 C 19.11,38.96 12.39,37.53 9,38.5 C 7.646,38.99 6.677,38.97 6,38 C 7.354,36.53 9,36 9,36 z" fill="#fff"/><path d="M 15,32 C 17.5,34.5 27.5,34.5 30,32 C 30.5,30.5 30,30 30,30 C 30,27.5 27.5,26 27.5,26 C 33,24.5 33.5,14.5 22.5,10.5 C 11.5,14.5 12,24.5 17.5,26 C 17.5,26 15,27.5 15,30 C 15,30 14.5,30.5 15,32 z" fill="#fff"/><path d="M 25 8 A 2.5 2.5 0 1 1  20,8 A 2.5 2.5 0 1 1  25 8 z" fill="#fff"/><path d="M 17.5,26 L 27.5,26 M 15,30 L 30,30 M 22.5,15.5 L 22.5,20.5 M 20,18 L 25,18"/></g></svg>',
+        'bb': '<svg viewBox="0 0 45 45"><g fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M 9,36 C 12.39,35.03 19.11,36.43 22.5,34 C 25.89,36.43 32.61,35.03 36,36 C 36,36 37.65,36.54 39,38 C 38.32,38.97 37.35,38.99 36,38.5 C 32.61,37.53 25.89,38.96 22.5,37.5 C 19.11,38.96 12.39,37.53 9,38.5 C 7.646,38.99 6.677,38.97 6,38 C 7.354,36.53 9,36 9,36 z" fill="#000"/><path d="M 15,32 C 17.5,34.5 27.5,34.5 30,32 C 30.5,30.5 30,30 30,30 C 30,27.5 27.5,26 27.5,26 C 33,24.5 33.5,14.5 22.5,10.5 C 11.5,14.5 12,24.5 17.5,26 C 17.5,26 15,27.5 15,30 C 15,30 14.5,30.5 15,32 z" fill="#000"/><path d="M 25 8 A 2.5 2.5 0 1 1  20,8 A 2.5 2.5 0 1 1  25 8 z" fill="#000"/><path d="M 17.5,26 L 27.5,26 M 15,30 L 30,30 M 22.5,15.5 L 22.5,20.5 M 20,18 L 25,18"/></g></svg>',
+        'rw': '<svg viewBox="0 0 45 45"><g fill="#fff" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M 9,39 L 36,39 L 36,36 L 9,36 L 9,39 z "/><path d="M 12,36 L 12,32 L 33,32 L 33,36 L 12,36 z "/><path d="M 11,14 L 11,9 L 15,9 L 15,11 L 20,11 L 20,9 L 25,9 L 25,11 L 30,11 L 30,9 L 34,9 L 34,14" /><path d="M 34,14 L 31,17 L 14,17 L 11,14" /><path d="M 31,17 L 31,29.5 L 14,29.5 L 14,17" /><path d="M 31,29.5 L 32.5,32 L 12.5,32 L 14,29.5" /><path d="M 11,14 L 34,14" fill="none" /></g></svg>',
+        'rb': '<svg viewBox="0 0 45 45"><g fill="#000" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M 9,39 L 36,39 L 36,36 L 9,36 L 9,39 z "/><path d="M 12,36 L 12,32 L 33,32 L 33,36 L 12,36 z "/><path d="M 11,14 L 11,9 L 15,9 L 15,11 L 20,11 L 20,9 L 25,9 L 25,11 L 30,11 L 30,9 L 34,9 L 34,14" /><path d="M 34,14 L 31,17 L 14,17 L 11,14" /><path d="M 31,17 L 31,29.5 L 14,29.5 L 14,17" /><path d="M 31,29.5 L 32.5,32 L 12.5,32 L 14,29.5" /><path d="M 11,14 L 34,14" fill="none" /></g></svg>',
+        'qw': '<svg viewBox="0 0 45 45"><g fill="#fff" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M 9 26 C 17.5 24.5 30 24.5 36 26 L 38 14 L 31 17 L 30 9 L 22.5 13 L 15 9 L 14 17 L 7 14 L 9 26 z" /><path d="M 9 26 C 9 28 10.5 28 11.5 30 C 12.5 31.5 12.5 31 12 33.5 C 10.5 34.5 10.5 36 10.5 36 C 9 37.5 11 38.5 11 38.5 C 17.5 39.5 27.5 39.5 34 38.5 C 34 38.5 35.5 37.5 34 36 C 34 36 34.5 34.5 33 33.5 C 32.5 31 32.5 31.5 33.5 30 C 34.5 28 36 28 36 26 C 27.5 24.5 17.5 24.5 9 26 z" /><path d="M 11.5 30 C 15 29 30 29 33.5 30" fill="none"/><path d="M 12 33.5 C 18 32.5 27 32.5 33 33.5" fill="none"/></g></svg>',
+        'qb': '<svg viewBox="0 0 45 45"><g fill="#000" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M 9 26 C 17.5 24.5 30 24.5 36 26 L 38 14 L 31 17 L 30 9 L 22.5 13 L 15 9 L 14 17 L 7 14 L 9 26 z" /><path d="M 9 26 C 9 28 10.5 28 11.5 30 C 12.5 31.5 12.5 31 12 33.5 C 10.5 34.5 10.5 36 10.5 36 C 9 37.5 11 38.5 11 38.5 C 17.5 39.5 27.5 39.5 34 38.5 C 34 38.5 35.5 37.5 34 36 C 34 36 34.5 34.5 33 33.5 C 32.5 31 32.5 31.5 33.5 30 C 34.5 28 36 28 36 26 C 27.5 24.5 17.5 24.5 9 26 z" /><path d="M 11.5 30 C 15 29 30 29 33.5 30" fill="none"/><path d="M 12 33.5 C 18 32.5 27 32.5 33 33.5" fill="none"/></g></svg>',
+        'kw': '<svg viewBox="0 0 45 45"><g fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M 22.5 11.63 L 22.5 6 M 20 8 L 25 8" stroke-width="2"/><path d="M 22.5 25 C 22.5 25 27 17.5 25.5 14.5 C 25.5 14.5 24.5 12 22.5 12 C 20.5 12 19.5 14.5 19.5 14.5 C 18 17.5 22.5 25 22.5 25" fill="#fff"/><path d="M 11.5 37 C 17 38 27 38 32.5 37 L 32.5 30 C 32.5 30 41.5 25.5 38.5 19.5 C 34.5 13 25 16 22.5 23.5 L 22.5 27 L 22.5 23.5 C 19 16 9.5 13 6.5 19.5 C 3.5 25.5 11.5 29.5 11.5 29.5 L 11.5 37 z" fill="#fff"/><path d="M 11.5 30 C 17 29 27 29 32.5 30"/><path d="M 11.5 33.5 C 17 32.5 27 32.5 32.5 33.5"/><path d="M 11.5 37 C 17 38 27 38 32.5 37"/></g></svg>',
+        'kb': '<svg viewBox="0 0 45 45"><g fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M 22.5 11.63 L 22.5 6 M 20 8 L 25 8" stroke-width="2"/><path d="M 22.5 25 C 22.5 25 27 17.5 25.5 14.5 C 25.5 14.5 24.5 12 22.5 12 C 20.5 12 19.5 14.5 19.5 14.5 C 18 17.5 22.5 25 22.5 25" fill="#000"/><path d="M 11.5 37 C 17 38 27 38 32.5 37 L 32.5 30 C 32.5 30 41.5 25.5 38.5 19.5 C 34.5 13 25 16 22.5 23.5 L 22.5 27 L 22.5 23.5 C 19 16 9.5 13 6.5 19.5 C 3.5 25.5 11.5 29.5 11.5 29.5 L 11.5 37 z" fill="#000"/><path d="M 11.5 30 C 17 29 27 29 32.5 30"/><path d="M 11.5 33.5 C 17 32.5 27 32.5 32.5 33.5"/><path d="M 11.5 37 C 17 38 27 38 32.5 37"/></g></svg>'
+    };
+
+    // Pozisyonel Değerlendirme Tabloları
+    const pawnEval = [
+        [0,  0,  0,  0,  0,  0,  0,  0],
+        [5, 10, 10,-20,-20, 10, 10,  5],
+        [5, -5,-10,  0,  0,-10, -5,  5],
+        [0,  0,  0, 20, 20,  0,  0,  0],
+        [5,  5, 10, 25, 25, 10,  5,  5],
+        [10, 10, 20, 30, 30, 20, 10, 10],
+        [50, 50, 50, 50, 50, 50, 50, 50],
+        [0,  0,  0,  0,  0,  0,  0,  0]
+    ];
+
+    const knightEval = [
+        [-50,-40,-30,-30,-30,-30,-40,-50],
+        [-40,-20,  0,  5,  5,  0,-20,-40],
+        [-30,  5, 10, 15, 15, 10,  5,-30],
+        [-30,  0, 15, 20, 20, 15,  0,-30],
+        [-30,  5, 15, 20, 20, 15,  5,-30],
+        [-30,  0, 10, 15, 15, 10,  0,-30],
+        [-40,-20,  0,  0,  0,  0,-20,-40],
+        [-50,-40,-30,-30,-30,-30,-40,-50]
+    ];
+
+    const bishopEval = [
+        [-20,-10,-10,-10,-10,-10,-10,-20],
+        [-10,  5,  0,  0,  0,  0,  5,-10],
+        [-10, 10, 10, 10, 10, 10, 10,-10],
+        [-10,  0, 10, 10, 10, 10,  0,-10],
+        [-10,  5,  5, 10, 10,  5,  5,-10],
+        [-10,  0,  5, 10, 10,  5,  0,-10],
+        [-10,  0,  0,  0,  0,  0,  0,-10],
+        [-20,-10,-10,-10,-10,-10,-10,-20]
+    ];
+
+    const kingEval = [
+        [20, 30, 10,  0,  0, 10, 30, 20],
+        [20, 20,  0,  0,  0,  0, 20, 20],
+        [-10,-20,-20,-20,-20,-20,-20,-10],
+        [-20,-30,-30,-40,-40,-30,-30,-20],
+        [-30,-40,-40,-50,-50,-40,-40,-30],
+        [-30,-40,-40,-50,-50,-40,-40,-30],
+        [-30,-40,-40,-50,-50,-40,-40,-30],
+        [-30,-40,-40,-50,-50,-40,-40,-30]
+    ];
+
+    function changeTheme(lightColor, darkColor) {
+        document.documentElement.style.setProperty('--white-sq', lightColor);
+        document.documentElement.style.setProperty('--black-sq', darkColor);
+    }
+
+    function setTimeMode(minutes) {
+        if (gameStarted) return; 
+        baseTime = minutes * 60;
+        timeLeft = { w: baseTime, b: baseTime };
+        
+        document.querySelectorAll('.time-btn').forEach(btn => btn.classList.remove('active'));
+        if(minutes === 5) document.getElementById('time-5').classList.add('active');
+        if(minutes === 10) document.getElementById('time-10').classList.add('active');
+        if(minutes === 20) document.getElementById('time-20').classList.add('active');
+        
+        updateTimerDisplay();
+    }
+
+    function createBoard() {
+        boardEl.innerHTML = '';
+        const boardArray = game.board();
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                const square = document.createElement('div');
+                const squareName = String.fromCharCode(97 + c) + (8 - r);
+                
+                square.className = `square ${(r + c) % 2 === 0 ? 'white-sq' : 'black-sq'}`;
+                square.dataset.square = squareName;
+                
+                if (squareName === lastMoveFrom || squareName === lastMoveTo) square.classList.add('last-move');
+                
+                const piece = boardArray[r][c];
+                if (piece) {
+                    const key = piece.type + piece.color;
+                    square.innerHTML = pieceSVGs[key] || '';
+                }
+                
+                square.onclick = () => handleSquareClick(squareName);
+                boardEl.appendChild(square);
+            }
+        }
+    }
+
+    function handleSquareClick(square) {
+        if (selectedSquare === square) {
+            selectedSquare = null;
+        } else if (selectedSquare) {
+            const move = game.move({ from: selectedSquare, to: square, promotion: 'q' });
+            if (move) {
+                if (!gameStarted) {
+                    gameStarted = true;
+                    document.querySelectorAll('.time-btn').forEach(btn => btn.style.opacity = '0.5');
+                    startTimer();
+                }
+                lastMoveFrom = selectedSquare;
+                lastMoveTo = square;
+                selectedSquare = null;
+                updateGameUI();
+            } else {
+                const piece = game.get(square);
+                if (piece && piece.color === game.turn()) selectedSquare = square;
+                else selectedSquare = null;
+            }
+        } else {
+            const piece = game.get(square);
+            if (piece && piece.color === game.turn()) selectedSquare = square;
+        }
+        renderSelection();
+    }
+
+    function renderSelection() {
+        document.querySelectorAll('.square').forEach(s => s.classList.remove('selected'));
+        if (selectedSquare) document.querySelector(`[data-square="${selectedSquare}"]`).classList.add('selected');
+    }
+
+    // Geliştirilmiş Konum ve Materyal Analizi
+    function updateEvaluation() {
+        const pieceValues = { 'p': 100, 'n': 320, 'b': 330, 'r': 500, 'q': 900, 'k': 20000 };
+        let evalScore = 0;
+        
+        const board = game.board();
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                const piece = board[r][c];
+                if (piece) {
+                    const value = pieceValues[piece.type];
+                    let posValue = 0;
+
+                    // Konum katsayılarını ekle
+                    if (piece.type === 'p') {
+                        posValue = piece.color === 'w' ? pawnEval[r][c] : pawnEval[7-r][c];
+                    } else if (piece.type === 'n') {
+                        posValue = piece.color === 'w' ? knightEval[r][c] : knightEval[7-r][c];
+                    } else if (piece.type === 'b') {
+                        posValue = piece.color === 'w' ? bishopEval[r][c] : bishopEval[7-r][c];
+                    } else if (piece.type === 'k') {
+                        posValue = piece.color === 'w' ? kingEval[r][c] : kingEval[7-r][c];
+                    }
+
+                    const totalValue = value + posValue;
+                    evalScore += (piece.color === 'w') ? totalValue : -totalValue;
+                }
+            }
+        }
+
+        const evalTextEl = document.getElementById('eval-text');
+        const evalFillEl = document.getElementById('eval-fill');
+
+        if (game.in_checkmate()) {
+            if (game.turn() === 'b') {
+                evalTextEl.innerText = "M1";
+                evalFillEl.style.height = "100%";
+            } else {
+                evalTextEl.innerText = "M1";
+                evalFillEl.style.height = "0%";
+            }
+            return;
+        }
+
+        // Puanı yüzdelik orana dönüştürme (Hassas dengeler için katsayılar optimize edildi)
+        const displayScore = (evalScore / 100).toFixed(1);
+        evalTextEl.innerText = displayScore > 0 ? `+${displayScore}` : displayScore;
+        
+        let percent = 50 + (evalScore / 30); 
+        percent = Math.max(5, Math.min(95, percent)); 
+        
+        evalFillEl.style.height = `${percent}%`;
+    }
+
+    function updateGameUI() {
+        createBoard();
+        updateEvaluation(); 
+        
+        let moves = game.history();
+        let html = '';
+        for(let i=0; i<moves.length; i+=2) {
+            html += `<div class="move-row"><span>${Math.floor(i/2)+1}. ${moves[i]}</span><span>${moves[i+1] || ''}</span></div>`;
+        }
+        document.getElementById('history').innerHTML = html || '<div style="color:#666; text-align: center;">Hamleler...</div>';
+        
+        let status = game.turn() === 'w' ? "Beyazın Sırası" : "Siyahın Sırası";
+        if (game.in_checkmate()) {
+            status = "MAT!";
+            clearInterval(timerInterval);
+        } else if (game.in_draw()) {
+            status = "BERABERE!";
+            clearInterval(timerInterval);
+        } else if (game.in_check()) {
+            status += " (Şah!)";
+        }
+        document.getElementById('status').innerText = status;
+    }
+
+    function startTimer() {
+        if (timerInterval) clearInterval(timerInterval);
+        timerInterval = setInterval(() => {
+            timeLeft[game.turn()]--;
+            
+            if (timeLeft[game.turn()] <= 0) {
+                timeLeft[game.turn()] = 0;
+                clearInterval(timerInterval);
+                document.getElementById('status').innerText = game.turn() === 'w' ? "Süre bitti, Siyah kazandı!" : "Süre bitti, Beyaz kazandı!";
+            }
+            
+            updateTimerDisplay();
+        }, 1000);
+    }
+
+    function updateTimerDisplay() {
+        const w = formatTime(timeLeft.w);
+        const b = formatTime(timeLeft.b);
+        document.getElementById('timer-display').innerText = `${w} | ${b}`;
+    }
+
+    function formatTime(s) {
+        return Math.floor(s/60).toString().padStart(2,'0') + ":" + (s%60).toString().padStart(2,'0');
+    }
+
+    function undoMove() { game.undo(); lastMoveFrom = null; lastMoveTo = null; updateGameUI(); }
+
+    createBoard();
+    updateEvaluation();
+</script>
+</body>
+</html>
